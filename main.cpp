@@ -1,12 +1,15 @@
+#include "app.h"
 #include <cstdint>
+#include <cstdlib>
 #include <ctime>
+#include <iostream>
+#include <raylib.h>
 #include <string>
-#if 0
-  g++ main.cpp -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
-  ./a.out && rm a.out && exit;
-#endif
 
-#include "raylib.h"
+#if 0
+ g++ main.cpp -o main ./libapp.so -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
+  ./main
+#endif
 
 static const int SRC_WIDTH = 600;
 static const int SRC_HEIGHT = 800;
@@ -31,10 +34,6 @@ struct Weather {
   bool rain = false;
   bool snow = false;
   bool cloud = false;
-};
-
-struct App {
-  Texture2D sun;
 };
 
 enum class Picture {
@@ -70,21 +69,14 @@ std::string locationToStr(Location location) {
   return std::string("Paris");
 }
 
-App initApp() {
-  InitWindow(SRC_WIDTH, SRC_HEIGHT, APP_NAME);
-  SetTargetFPS(FPS);
-  Texture2D sun = LoadTexture(SUN_DIR);
-  return App{sun = sun};
-}
-
-void drawBackGround(Picture picture, App *app) {
+void drawBackGround(Picture picture, App app) {
   Texture2D texture;
   switch (picture) {
   case Picture::Sun:
-    texture = app->sun;
+    texture = app.sun;
     break;
   default:
-    texture = app->sun;
+    texture = app.sun;
     break;
   }
   Vector2 position = {0, 0};
@@ -94,17 +86,93 @@ void drawBackGround(Picture picture, App *app) {
   DrawTextureEx(texture, position, 0.0f, 0.3f, tint);
 }
 
+#include <dlfcn.h>
+// Define the function pointer type for initApp
+typedef App (*InitAppFunc)();
+
+// Load the shared library dynamically and obtain the address of the initApp
+// function
+InitAppFunc loadLibrary(const char *libName) {
+  // Load the shared library
+  void *libHandle = dlopen(libName, RTLD_LAZY);
+  if (!libHandle) {
+    // Error handling if library loading fails
+    std::cerr << "Error loading library: " << dlerror() << std::endl;
+    return nullptr;
+  }
+
+  // Obtain address of the initApp function
+  InitAppFunc initAppFunc = (InitAppFunc)dlsym(libHandle, "initApp");
+  if (!initAppFunc) {
+    // Error handling if function address retrieval fails
+    std::cerr << "Error getting initApp function address: " << dlerror()
+              << std::endl;
+    // Unload the library to prevent memory leaks
+    dlclose(libHandle);
+    return nullptr;
+  }
+
+  dlclose(libHandle);
+  // Successfully loaded library and obtained function address
+  return initAppFunc;
+}
+
+typedef void (*Pee)();
+Pee loadPee(const char *libName) {
+  // Load the shared library
+  void *libHandle = dlopen(libName, RTLD_LAZY);
+  if (!libHandle) {
+    // Error handling if library loading fails
+    std::cerr << "Error loading library: " << dlerror() << std::endl;
+    return nullptr;
+  }
+
+  // Obtain address of the initApp function
+  Pee pee = (Pee)dlsym(libHandle, "pee");
+  if (!pee) {
+    // Error handling if function address retrieval fails
+    std::cerr << "Error getting initApp function address: " << dlerror()
+              << std::endl;
+    // Unload the library to prevent memory leaks
+    dlclose(libHandle);
+    return nullptr;
+  }
+
+  dlclose(libHandle);
+  // Successfully loaded library and obtained function address
+  return pee;
+}
+
 int main() {
   // Init app
+  const char *libName = "./libapp.so";
+
+  // Load the initial library
+  InitAppFunc initApp = loadLibrary(libName);
+  if (!initApp) {
+    std::cerr << "Failed to load initial library." << std::endl;
+    return 1;
+  }
+
   App app = initApp();
 
   // Main game loop
   while (!WindowShouldClose()) {
+    if (IsKeyPressed(KEY_B)) {
+      // Reload the library and reinitialize the App object
+      Pee pee = loadPee("./libtest.so");
+      if (pee) {
+        pee();
+      } else {
+        std::cerr << "Failed to reload library." << std::endl;
+      }
+    }
+
     BeginDrawing();
 
     ClearBackground(RAYWHITE);
 
-    drawBackGround(Picture::Sun, &app);
+    drawBackGround(Picture::Sun, app);
     DrawText(MSG, SRC_WIDTH / 3 + 10, SRC_HEIGHT / 5, FONT_SIZE, BLACK);
 
     EndDrawing();

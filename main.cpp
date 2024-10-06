@@ -1,184 +1,123 @@
-#include "app.h"
-#include <cstdint>
-#include <cstdlib>
-#include <ctime>
+#include "./queue.hpp"
 #include <iostream>
 #include <raylib.h>
-#include <string>
+#include <variant>
 
 #if 0
- g++ main.cpp -o main ./libapp.so -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
-  ./main
+ g++ main.cpp -o main -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
+ ./main; rm ./main; exit
 #endif
 
-static const int SRC_WIDTH = 600;
-static const int SRC_HEIGHT = 800;
-static const char *APP_NAME = "Sunpp";
-static const char *MSG = "Hello!";
-static const int FONT_SIZE = 40;
-static const int FPS = 60;
+const int SRC_WIDTH = 600;
+const int SRC_HEIGHT = 800;
+const int FONT_SIZE = 40;
+const int FPS = 60;
+const char window_name[20] = "Basic Raylib Window";
+const char msg[10] = "Hello!";
 
-// Textures
-static const char *SUN_DIR = "./assets/sun.png";
-
-struct Location {
-  uint64_t latitude;
-  uint64_t longitude;
+struct MouseClick {
+  int x;
+  int y;
 };
 
-//
-struct Weather {
-  int temperature;
-  time_t date;
-  Location location;
-  bool rain = false;
-  bool snow = false;
-  bool cloud = false;
+struct Key {
+  int key;
 };
 
-enum class Picture {
-  Sun,
-  Cloud,
-  Rain,
-  Snow,
+enum class Button {
+  Left = 0,
+  Right,
 };
 
-Picture getPicture(Weather weather) {
-  if (weather.snow)
-    return Picture::Snow;
-  if (weather.rain)
-    return Picture::Rain;
-  if (weather.cloud)
-    return Picture::Cloud;
-  return Picture::Sun;
+enum class EventType {
+  MouseClicked = 0,
+  KeyPressed,
+  ButtonClicked,
+};
+
+// Use std::variant to hold different event types
+using EventData = std::variant<Key, MouseClick, Button>;
+
+struct Event {
+  EventType event_type;
+  EventData data;
+
+  Event(int key_code)
+      : event_type(EventType::KeyPressed), data(Key{key_code}) {}
+
+  Event(int x, int y)
+      : event_type(EventType::MouseClicked), data(MouseClick{x, y}) {}
+
+  Event(Button button) : event_type(EventType::ButtonClicked), data(button) {}
+};
+
+struct State {
+  Color color;
+  State() : color(BLACK) {}
+};
+
+bool are_colors_equal(Color a, Color b) {
+  return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
 }
 
-std::string timeToStr(time_t rawTime) {
-  struct tm *timeInfo = localtime(&rawTime);
-  char buffer[11]; // "YYYY-MM-DD" is 10 characters plus null terminator
-  // Format the date
-  strftime(buffer, sizeof(buffer), "%Y-%m-%d", timeInfo);
-  return std::string(buffer);
-}
-
-std::string locationToStr(Location location) {
-  // 51.5072° N, 0.1276°
-  if (location.latitude == 515072 && location.longitude == 1276) {
-    return std::string("London");
+void handle_events(Queue<Event> &queue, State &state) {
+  while (!queue.is_empty()) {
+    Event event = queue.dequeue();
+    switch (event.event_type) {
+    case EventType::MouseClicked: {
+      auto mouse_click = std::get<MouseClick>(event.data);
+      std::cout << "Mouse clicked at (" << mouse_click.x << ", "
+                << mouse_click.y << ")\n";
+      break;
+    }
+    case EventType::KeyPressed: {
+      auto key = std::get<Key>(event.data);
+      std::cout << "Pressed key: " << key.key << '\n';
+      if (key.key == KEY_SPACE) {
+        if (are_colors_equal(state.color, RAYWHITE)) {
+          state.color = BLACK;
+        } else {
+          state.color = RAYWHITE;
+        }
+      }
+      break;
+    }
+    case EventType::ButtonClicked: {
+      auto button = std::get<Button>(event.data);
+      std::cout << "Button clicked: "
+                << (button == Button::Left ? "Left" : "Right") << '\n';
+      break;
+    }
+    }
   }
-  return std::string("Paris");
-}
-
-void drawBackGround(Picture picture, App app) {
-  Texture2D texture;
-  switch (picture) {
-  case Picture::Sun:
-    texture = app.sun;
-    break;
-  default:
-    texture = app.sun;
-    break;
-  }
-  Vector2 position = {0, 0};
-  Color tint = WHITE;
-
-  // Draw the texture with the calculated scale
-  DrawTextureEx(texture, position, 0.0f, 0.3f, tint);
-}
-
-#include <dlfcn.h>
-// Define the function pointer type for initApp
-typedef App (*InitAppFunc)();
-
-// Load the shared library dynamically and obtain the address of the initApp
-// function
-InitAppFunc loadLibrary(const char *libName) {
-  // Load the shared library
-  void *libHandle = dlopen(libName, RTLD_LAZY);
-  if (!libHandle) {
-    // Error handling if library loading fails
-    std::cerr << "Error loading library: " << dlerror() << std::endl;
-    return nullptr;
-  }
-
-  // Obtain address of the initApp function
-  InitAppFunc initAppFunc = (InitAppFunc)dlsym(libHandle, "initApp");
-  if (!initAppFunc) {
-    // Error handling if function address retrieval fails
-    std::cerr << "Error getting initApp function address: " << dlerror()
-              << std::endl;
-    // Unload the library to prevent memory leaks
-    dlclose(libHandle);
-    return nullptr;
-  }
-
-  dlclose(libHandle);
-  // Successfully loaded library and obtained function address
-  return initAppFunc;
-}
-
-typedef void (*Pee)();
-Pee loadPee(const char *libName) {
-  // Load the shared library
-  void *libHandle = dlopen(libName, RTLD_LAZY);
-  if (!libHandle) {
-    // Error handling if library loading fails
-    std::cerr << "Error loading library: " << dlerror() << std::endl;
-    return nullptr;
-  }
-
-  // Obtain address of the initApp function
-  Pee pee = (Pee)dlsym(libHandle, "pee");
-  if (!pee) {
-    // Error handling if function address retrieval fails
-    std::cerr << "Error getting initApp function address: " << dlerror()
-              << std::endl;
-    // Unload the library to prevent memory leaks
-    dlclose(libHandle);
-    return nullptr;
-  }
-
-  dlclose(libHandle);
-  // Successfully loaded library and obtained function address
-  return pee;
 }
 
 int main() {
-  // Init app
-  const char *libName = "./libapp.so";
-
-  // Load the initial library
-  InitAppFunc initApp = loadLibrary(libName);
-  if (!initApp) {
-    std::cerr << "Failed to load initial library." << std::endl;
-    return 1;
-  }
-
-  App app = initApp();
+  InitWindow(SRC_WIDTH, SRC_HEIGHT, window_name);
+  SetTargetFPS(FPS);
+  Queue<Event> queue = Queue<Event>();
+  State state = State();
 
   // Main game loop
   while (!WindowShouldClose()) {
-    if (IsKeyPressed(KEY_B)) {
-      // Reload the library and reinitialize the App object
-      Pee pee = loadPee("./libtest.so");
-      if (pee) {
-        pee();
-      } else {
-        std::cerr << "Failed to reload library." << std::endl;
-      }
+    BeginDrawing();
+    ClearBackground(state.color);
+    DrawText(msg, 100, 100, FONT_SIZE, LIGHTGRAY);
+
+    handle_events(queue, state);
+
+    if (IsKeyPressed(KEY_SPACE)) {
+      queue.enqueue(Event(KEY_SPACE)); // Key press event
     }
 
-    BeginDrawing();
-
-    ClearBackground(RAYWHITE);
-
-    drawBackGround(Picture::Sun, app);
-    DrawText(MSG, SRC_WIDTH / 3 + 10, SRC_HEIGHT / 5, FONT_SIZE, BLACK);
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+      queue.enqueue(Event(GetMouseX(), GetMouseY())); // Mouse click event
+    }
 
     EndDrawing();
   }
 
-  // De-Initialization
   CloseWindow();
+
   return 0;
 }
